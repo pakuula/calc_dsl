@@ -1,0 +1,16 @@
+print("n=", n)
+
+prev=0
+curr=1
+
+fib = for i in (2-1) .. n-1 (
+    # it is comment
+    next = curr
+    next += prev
+    prev = curr
+    curr = next
+    curr
+)
+
+# print("fib(",n,") = ",fib)
+fib

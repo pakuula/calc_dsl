@@ -1,0 +1,12 @@
+# Простое вычисление
+print("Привет, мир калькуляторов!")
+x = 2 + 2 * 2
+
+p = set_precision(0)
+print("2 + 2 * 2 =", x)
+set_precision(p)
+print("2 + 2 * 2 =", x)
+
+# Модульная арифметика
+result = 2 ** 10 mod 7
+print("2^10 mod 7 =", result)

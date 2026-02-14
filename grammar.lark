@@ -1,0 +1,59 @@
+// Grammar for the math DSL.
+
+?start: statement_list?
+
+?statement_list: SEP* (statement (SEP+ statement)*)? SEP*
+
+?statement: assignment
+          | expr
+
+assignment: NAME assign_op expr
+assign_op: ASSIGN | PLUS_ASSIGN | MINUS_ASSIGN | DIV_ASSIGN | MOD_ASSIGN
+
+?expr: for_expr
+     | block
+     | print_call
+     | sum
+
+for_expr: "for" NAME "in" expr ".." expr ("by" expr)? block
+
+block: "(" statement_list? ")"
+
+print_call: "print" "(" print_args? ")"
+print_args: print_arg ("," print_arg)*
+print_arg: STRING | expr
+
+?sum: product ((PLUS | MINUS) product)*
+?product: power ((STAR | SLASH | MOD) power)*
+?power: unary (POW power)?
+?unary: (PLUS | MINUS) unary
+      | atom
+
+?atom: NUMBER           -> number
+     | func_call
+     | NAME             -> var
+
+func_call: NAME "(" arg_list? ")"
+arg_list: expr ("," expr)*
+
+ASSIGN: "="
+PLUS_ASSIGN: "+="
+MINUS_ASSIGN: "-="
+DIV_ASSIGN: "/="
+MOD_ASSIGN: "mod="
+
+PLUS: "+"
+MINUS: "-"
+STAR: "*"
+SLASH: "/"
+POW: "**"
+MOD: "mod"
+
+%import common.CNAME -> NAME
+NUMBER: /(\d+(\.\d+)?|\.\d+)/
+%import common.ESCAPED_STRING -> STRING
+
+SEP: /;|\n+/
+
+%ignore /[ \t\f\r]+/
+%ignore /#[^\n]*/

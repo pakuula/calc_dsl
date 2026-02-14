@@ -1,0 +1,7 @@
+x = 2 + 2 * 2
+set_precision(4)
+p = get_precision()
+set_precision(0)
+print("2 + 2 * 2 =", x)
+set_precision(p)
+print("2 + 2 * 2 =", x)
