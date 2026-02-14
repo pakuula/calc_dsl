@@ -1,3 +1,5 @@
+"""Интерпретатор DSL для математических вычислений."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,11 +14,13 @@ from lark import Lark, Token, Tree
 
 class DSLError(Exception):
     """Базовый класс исключений для ошибок интерпретатора DSL.
-    
+
     Хранит сообщение об ошибке и опциональную позицию в исходном коде (строка и столбец).
     """
-    
-    def __init__(self, message: str, line: Optional[int] = None, column: Optional[int] = None) -> None:
+
+    def __init__(
+        self, message: str, line: Optional[int] = None, column: Optional[int] = None
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.line = line
@@ -30,21 +34,24 @@ class DSLError(Exception):
 
 class DivisionByZeroError(DSLError):
     """Исключение для ошибок деления на ноль или mod на ноль."""
-    pass
+
+    pass  # pylint: disable=unnecessary-pass
 
 
 class VariableNotFoundError(DSLError):
     """Исключение для обращения к неопределённой переменной."""
-    pass
+
+    pass  # pylint: disable=unnecessary-pass
 
 
 @dataclass(frozen=True)
 class PowerValue:
     """Значение степени для оптимизации модульного возведения в степень.
-    
+
     Хранит основание, показатель степени и вычисленное значение.
     Используется для оптимизации выражений вида a**b mod p через pow(a, b, p).
     """
+
     base: Decimal
     exponent: Decimal
     value: Decimal
@@ -52,7 +59,7 @@ class PowerValue:
 
 class Interpreter:
     """Интерпретатор DSL для математических вычислений.
-    
+
     Поддерживает:
     - Арифметику произвольной точности (Decimal)
     - Математические функции (sin, cos, ln, sqrt, nrt и др.)
@@ -62,10 +69,12 @@ class Interpreter:
     - Управление точностью вычислений
     - Трассировку выполнения для отладки
     """
-    
-    def __init__(self, initial_env: Optional[Dict[str, Any]] = None, trace: bool = False) -> None:
+
+    def __init__(
+        self, initial_env: Optional[Dict[str, Any]] = None, trace: bool = False
+    ) -> None:
         """Инициализация интерпретатора.
-        
+
         Args:
             initial_env: Начальные значения переменных (словарь имя -> значение)
             trace: Включить режим трассировки для отладки выполнения
@@ -96,10 +105,10 @@ class Interpreter:
 
     def parse(self, text: str) -> Tree:
         """Разобрать исходный код в синтаксическое дерево.
-        
+
         Args:
             text: Исходный код программы на DSL
-            
+
         Returns:
             Синтаксическое дерево (Lark Tree)
         """
@@ -107,10 +116,10 @@ class Interpreter:
 
     def execute(self, text: str) -> Any:
         """Выполнить программу на DSL.
-        
+
         Args:
             text: Исходный код программы
-            
+
         Returns:
             Результат последнего выражения или None
         """
@@ -120,7 +129,7 @@ class Interpreter:
 
     def set_variable(self, name: str, value: Any) -> None:
         """Установить значение переменной в окружении.
-        
+
         Args:
             name: Имя переменной
             value: Значение переменной
@@ -129,10 +138,10 @@ class Interpreter:
 
     def format_value(self, value: Any) -> str:
         """Форматировать значение в строку с учётом текущей точности.
-        
+
         Args:
             value: Значение для форматирования
-            
+
         Returns:
             Строковое представление с нужным количеством знаков
         """
@@ -140,10 +149,10 @@ class Interpreter:
 
     def _eval(self, node: Any) -> Any:
         """Вычислить узел синтаксического дерева.
-        
+
         Args:
             node: Узел дерева (Tree, Token или примитивное значение)
-            
+
         Returns:
             Результат вычисления узла
         """
@@ -151,7 +160,7 @@ class Interpreter:
             method = getattr(self, f"_eval_{node.data}", None)
             if method is None:
                 raise DSLError(f"Unsupported syntax node: {node.data}")
-            return method(node)
+            return method(node)  # pylint: disable=not-callable
         if isinstance(node, Token):
             if node.type == "NUMBER":
                 return self._to_decimal(node.value)
@@ -182,13 +191,13 @@ class Interpreter:
                 continue
             if isinstance(child, Tree) and child.data == "sep":
                 continue
-            
+
             # Trace statement before execution
             if self._trace and isinstance(child, Tree):
                 self._trace_statement(child)
-            
+
             result = self._eval(child)
-            
+
             # Trace statement output after execution
             if self._trace and isinstance(child, Tree):
                 if child.data == "assignment":
@@ -197,12 +206,18 @@ class Interpreter:
                     is_for_assignment = isinstance(rhs, Tree) and rhs.data == "for_expr"
                     if not is_for_assignment:
                         # Regular assignment: print '+ var = value'
-                        name = child.children[0].value
-                        print(f"+ {name} = {self._format_value(self._env[name])}")
+                        name_tok = child.children[0]
+                        assert isinstance(name_tok, Token)
+                        print(
+                            f"+ {name_tok.value} = {self._format_value(self._env[name_tok.value])}"
+                        )
                     else:
                         # For-assignment: only print after the loop completes
-                        name = child.children[0].value
-                        print(f"+ {name} = {self._format_value(self._env[name])}")
+                        name_tok = child.children[0]
+                        assert isinstance(name_tok, Token)
+                        print(
+                            f"+ {name_tok.value} = {self._format_value(self._env[name_tok.value])}"
+                        )
                 elif child.data not in {"print_call", "for_expr"}:
                     # Expression (not print, not for): print '+ value'
                     if result is not None:
@@ -216,14 +231,15 @@ class Interpreter:
 
     def _eval_assignment(self, node: Tree) -> None:
         """Выполнить присваивание: =, +=, -=, /=, mod=.
-        
+
         Args:
             node: Узел присваивания
-            
+
         Returns:
             None (присваивание не возвращает значение)
         """
         name_token = node.children[0]
+        assert isinstance(name_token, Token)
         op_tree = node.children[1]
         value = self._eval(node.children[2])
         op = self._assign_op(op_tree)
@@ -241,19 +257,32 @@ class Interpreter:
 
         current = self._env[name_token.value]
         if op == "+=":
-            self._env[name_token.value] = self._round_value(self._to_decimal(current) + self._to_decimal(value))
+            self._env[name_token.value] = self._round_value(
+                self._to_decimal(current) + self._to_decimal(value)
+            )
         elif op == "-=":
-            self._env[name_token.value] = self._round_value(self._to_decimal(current) - self._to_decimal(value))
+            self._env[name_token.value] = self._round_value(
+                self._to_decimal(current) - self._to_decimal(value)
+            )
         elif op == "/=":
-            self._env[name_token.value] = self._div(self._to_decimal(current), self._to_decimal(value), node.meta)
+            self._env[name_token.value] = self._div(
+                self._to_decimal(current), self._to_decimal(value), node.meta
+            )
         elif op == "mod=":
-            self._env[name_token.value] = self._mod(self._to_decimal(current), self._to_decimal(value), node.meta)
+            self._env[name_token.value] = self._mod(
+                self._to_decimal(current), self._to_decimal(value), node.meta
+            )
         else:
-            raise DSLError(f"Unsupported assignment operator: {op}", line=node.meta.line, column=node.meta.column)
+            raise DSLError(
+                f"Unsupported assignment operator: {op}",
+                line=node.meta.line,
+                column=node.meta.column,
+            )
         return None
 
     def _assign_op(self, node: Tree) -> str:
         token = node.children[0]
+        assert isinstance(token, Token)
         return token.value
 
     def _eval_expr(self, node: Tree) -> Any:
@@ -261,19 +290,20 @@ class Interpreter:
 
     def _eval_for_expr(self, node: Tree) -> Any:
         """Выполнить цикл for с диапазоном и опциональным шагом.
-        
+
         Семантика видимости переменной цикла:
         - Если переменная существовала до цикла, сохраняет последнее значение
         - Если цикл не выполнился, переменная сохраняет исходное значение
         - Если переменная новая, удаляется после цикла
-        
+
         Args:
             node: Узел for-выражения
-            
+
         Returns:
             Результат последнего выражения в последней итерации
         """
         name_token = node.children[0]
+        assert isinstance(name_token, Token)
         start = self._to_decimal(self._eval(node.children[1]))
         end = self._to_decimal(self._eval(node.children[2]))
         block = node.children[-1]
@@ -282,42 +312,56 @@ class Interpreter:
             step = self._to_decimal(self._eval(node.children[3]))
 
         if step == 0:
-            raise DSLError("Step cannot be zero", line=node.meta.line, column=node.meta.column)
+            raise DSLError(
+                "Step cannot be zero", line=node.meta.line, column=node.meta.column
+            )
 
         existed_before = name_token.value in self._env
-        original_value = self._env.get(name_token.value)
+        original_value: Any = self._env.get(name_token.value)
         self._env[name_token.value] = self._round_value(start)
 
         last_result = None
-        last_valid_value = None
+        last_valid_value: Optional[Decimal] = None
         iterations = 0
 
         if step > 0:
-            condition = lambda i: i <= end
+            condition = lambda i: i <= end # pylint: disable=unnecessary-lambda-assignment
         else:
-            condition = lambda i: i >= end
+            condition = lambda i: i >= end # pylint: disable=unnecessary-lambda-assignment
 
         while condition(self._to_decimal(self._env[name_token.value])):
             # Trace loop iteration entry
             if self._trace and iterations == 0:
                 # First iteration: print loop header with actual values
                 source = self._get_source_line(node.meta.line)
-                step_str = f" by {self._format_value(step)}" if len(node.children) == 5 else ""
-                print(f"- {node.meta.line}: for {name_token.value} in {self._format_value(start)} .. {self._format_value(end)}{step_str}")
-                print(f"+ {name_token.value} = {self._format_value(self._env[name_token.value])}")
+                step_str = (
+                    f" by {self._format_value(step)}" if len(node.children) == 5 else ""
+                )
+                print(
+                    f"- {node.meta.line}: for {name_token.value} in "
+                    f"{self._format_value(start)} .. {self._format_value(end)}{step_str}"
+                )
+                print(
+                    f"+ {name_token.value} = {self._format_value(self._env[name_token.value])}"
+                )
             elif self._trace:
                 # Subsequent iterations: just print updated loop variable
-                print(f"+ {name_token.value} = {self._format_value(self._env[name_token.value])}")
-            
+                print(
+                    f"+ {name_token.value} = {self._format_value(self._env[name_token.value])}"
+                )
+
             last_result = self._eval(block)
             iterations += 1
             last_valid_value = self._to_decimal(self._env[name_token.value])
-            self._env[name_token.value] = self._round_value(self._to_decimal(self._env[name_token.value]) + step)
+            self._env[name_token.value] = self._round_value(
+                self._to_decimal(self._env[name_token.value]) + step
+            )
 
         if existed_before:
             if iterations == 0:
                 self._env[name_token.value] = original_value
             else:
+                assert last_valid_value is not None
                 self._env[name_token.value] = last_valid_value
         else:
             if name_token.value in self._env:
@@ -339,22 +383,22 @@ class Interpreter:
 
     def _eval_print_call(self, node: Tree) -> None:
         """Выполнить вызов print() для вывода значений и строк.
-        
+
         Args:
             node: Узел вызова print
-            
+
         Returns:
             None
         """
-        args = []
+        args: list[Any] = []
         if node.children:
-            args = self._eval_print_args(node.children[0])
+            args = list(self._eval_print_args(node.children[0]))
         printable = [self._format_value(arg) for arg in args]
         print(" ".join(printable))
         return None
 
     def _eval_print_args(self, node: Tree) -> Iterable[Any]:
-        args = []
+        args: list[Any] = []
         for child in node.children:
             if isinstance(child, Tree) and child.data == "print_arg":
                 args.append(self._eval_print_arg(child))
@@ -371,11 +415,16 @@ class Interpreter:
         idx = 1
         while idx < len(node.children):
             op_token = node.children[idx]
+            assert isinstance(op_token, Token)
             right = self._eval(node.children[idx + 1])
             if op_token.value == "+":
-                value = self._round_value(self._to_decimal(value) + self._to_decimal(right))
+                value = self._round_value(
+                    self._to_decimal(value) + self._to_decimal(right)
+                )
             else:
-                value = self._round_value(self._to_decimal(value) - self._to_decimal(right))
+                value = self._round_value(
+                    self._to_decimal(value) - self._to_decimal(right)
+                )
             idx += 2
         return value
 
@@ -384,11 +433,18 @@ class Interpreter:
         idx = 1
         while idx < len(node.children):
             op_token = node.children[idx]
+            assert isinstance(op_token, Token)
             right = self._eval(node.children[idx + 1])
             if op_token.value == "*":
-                left = self._round_value(self._to_decimal(self._unwrap_value(left)) * self._to_decimal(right))
+                left = self._round_value(
+                    self._to_decimal(self._unwrap_value(left)) * self._to_decimal(right)
+                )
             elif op_token.value == "/":
-                left = self._div(self._to_decimal(self._unwrap_value(left)), self._to_decimal(right), node.meta)
+                left = self._div(
+                    self._to_decimal(self._unwrap_value(left)),
+                    self._to_decimal(right),
+                    node.meta,
+                )
             else:
                 left = self._mod_op(left, right, node.meta)
             idx += 2
@@ -396,15 +452,15 @@ class Interpreter:
 
     def _mod_op(self, left: Any, right: Any, meta: Any) -> Any:
         """Вычислить модуль с оптимизацией для степени.
-        
+
         Если левый операнд - PowerValue (результат a**b), использует
         оптимизированный pow(a, b, p) для модульной степени.
-        
+
         Args:
             left: Левый операнд (может быть PowerValue)
             right: Модуль (правый операнд)
             meta: Метаданные узла для позиции ошибки
-            
+
         Returns:
             Результат операции mod
         """
@@ -429,6 +485,7 @@ class Interpreter:
         if len(node.children) == 1:
             return self._eval(node.children[0])
         op_token = node.children[0]
+        assert isinstance(op_token, Token)
         value = self._to_decimal(self._eval(node.children[1]))
         if op_token.value == "+":
             return value
@@ -438,16 +495,21 @@ class Interpreter:
         return self._eval(node.children[0])
 
     def _eval_number(self, node: Tree) -> Any:
-        return self._to_decimal(node.children[0].value)
+        token = node.children[0]
+        assert isinstance(token, Token)
+        return self._to_decimal(token.value)
 
     def _eval_var(self, node: Tree) -> Any:
-        return self._get_var(node.children[0])
+        token = node.children[0]
+        assert isinstance(token, Token)
+        return self._get_var(token)
 
     def _eval_func_call(self, node: Tree) -> Any:
         name_token = node.children[0]
-        args = []
+        assert isinstance(name_token, Token)
+        args: list[Any] = []
         if len(node.children) > 1:
-            args = self._eval_arg_list(node.children[1])
+            args = list(self._eval_arg_list(node.children[1]))
         return self._call_function(name_token, args)
 
     def _eval_arg_list(self, node: Tree) -> Iterable[Any]:
@@ -464,17 +526,17 @@ class Interpreter:
 
     def _call_function(self, token: Token, args: Iterable[Any]) -> Any:
         """Вызвать встроенную функцию по имени.
-        
+
         Поддерживаемые функции:
         - Управление точностью: set_precision, get_precision
         - Логарифмы: ln, log2, log10
         - Тригонометрия: sin, cos, tg, ctg
         - Корни: sqrt, nrt
-        
+
         Args:
             token: Токен с именем функции
             args: Аргументы функции
-            
+
         Returns:
             Результат вызова функции
         """
@@ -503,24 +565,32 @@ class Interpreter:
         if name == "nrt":
             return self._apply_nrt(args, token)
 
-        raise DSLError(f"Unknown function: {name}", line=token.line, column=token.column)
+        raise DSLError(
+            f"Unknown function: {name}", line=token.line, column=token.column
+        )
 
     def _set_precision(self, args: Iterable[Any], token: Token) -> Any:
         """Установить точность вычислений (количество знаков после запятой).
-        
+
         Args:
             args: Список из одного аргумента - новая точность (целое >= 0)
             token: Токен для позиции ошибки
-            
+
         Returns:
             Старое значение точности (до изменения)
         """
         args_list = list(args)
         if len(args_list) != 1:
-            raise DSLError("set_precision expects 1 argument", line=token.line, column=token.column)
+            raise DSLError(
+                "set_precision expects 1 argument", line=token.line, column=token.column
+            )
         value = self._to_decimal(args_list[0])
         if not self._is_int(value) or value < 0:
-            raise DSLError("set_precision expects integer >= 0", line=token.line, column=token.column)
+            raise DSLError(
+                "set_precision expects integer >= 0",
+                line=token.line,
+                column=token.column,
+            )
         old_precision = self._precision
         self._precision = int(value)
         return Decimal(old_precision)
@@ -528,7 +598,11 @@ class Interpreter:
     def _apply_math_1(self, func: Any, args: Iterable[Any], token: Token) -> Any:
         args_list = list(args)
         if len(args_list) != 1:
-            raise DSLError(f"{token.value} expects 1 argument", line=token.line, column=token.column)
+            raise DSLError(
+                f"{token.value} expects 1 argument",
+                line=token.line,
+                column=token.column,
+            )
         value = float(self._to_decimal(args_list[0]))
         try:
             result = func(value)
@@ -539,17 +613,23 @@ class Interpreter:
     def _apply_ctg(self, args: Iterable[Any], token: Token) -> Any:
         args_list = list(args)
         if len(args_list) != 1:
-            raise DSLError("ctg expects 1 argument", line=token.line, column=token.column)
+            raise DSLError(
+                "ctg expects 1 argument", line=token.line, column=token.column
+            )
         value = float(self._to_decimal(args_list[0]))
         tan_value = math.tan(value)
         if tan_value == 0:
-            raise DivisionByZeroError("ctg division by zero", line=token.line, column=token.column)
+            raise DivisionByZeroError(
+                "ctg division by zero", line=token.line, column=token.column
+            )
         return self._round_value(Decimal(str(1 / tan_value)))
 
     def _apply_sqrt(self, args: Iterable[Any], token: Token) -> Any:
         args_list = list(args)
         if len(args_list) != 1:
-            raise DSLError("sqrt expects 1 argument", line=token.line, column=token.column)
+            raise DSLError(
+                "sqrt expects 1 argument", line=token.line, column=token.column
+            )
         value = self._to_decimal(args_list[0])
         if value < 0:
             raise DSLError("sqrt domain error", line=token.line, column=token.column)
@@ -558,11 +638,15 @@ class Interpreter:
     def _apply_nrt(self, args: Iterable[Any], token: Token) -> Any:
         args_list = list(args)
         if len(args_list) != 2:
-            raise DSLError("nrt expects 2 arguments", line=token.line, column=token.column)
+            raise DSLError(
+                "nrt expects 2 arguments", line=token.line, column=token.column
+            )
         x = self._to_decimal(args_list[0])
         n = self._to_decimal(args_list[1])
         if n == 0:
-            raise DivisionByZeroError("nrt division by zero", line=token.line, column=token.column)
+            raise DivisionByZeroError(
+                "nrt division by zero", line=token.line, column=token.column
+            )
         if self._is_int(n) and int(n) % 2 == 0 and x < 0:
             raise DSLError("nrt domain error", line=token.line, column=token.column)
         result = Decimal(str(float(x) ** (1.0 / float(n))))
@@ -577,36 +661,46 @@ class Interpreter:
         result = Decimal(str(float(base) ** float(exponent)))
         return self._round_value(result)
 
-    def _mod_pow(self, base: Decimal, exponent: Decimal, modulus: Decimal, meta: Any) -> Decimal:
+    def _mod_pow(
+        self, base: Decimal, exponent: Decimal, modulus: Decimal, meta: Any
+    ) -> Decimal:
         if modulus == 0:
-            raise DivisionByZeroError("mod division by zero", line=meta.line, column=meta.column)
-        return self._round_value(Decimal(pow(int(base), int(exponent), int(abs(modulus)))))
+            raise DivisionByZeroError(
+                "mod division by zero", line=meta.line, column=meta.column
+            )
+        return self._round_value(
+            Decimal(pow(int(base), int(exponent), int(abs(modulus))))
+        )
 
     def _div(self, left: Decimal, right: Decimal, meta: Any) -> Decimal:
         if right == 0:
-            raise DivisionByZeroError("division by zero", line=meta.line, column=meta.column)
+            raise DivisionByZeroError(
+                "division by zero", line=meta.line, column=meta.column
+            )
         return self._round_value(left / right)
 
     def _mod(self, left: Decimal, right: Decimal, meta: Any) -> Decimal:
         """Вычислить модуль с математической семантикой (неотрицательный остаток).
-        
+
         Формула: result = left - floor(left / |right|) * |right|
         Результат всегда в диапазоне [0, |right|)
-        
+
         Примеры:
             -5 mod 3 = 1 (не -2)
             5 mod -3 = 2
-        
+
         Args:
             left: Делимое
             right: Делитель (модуль)
             meta: Метаданные для позиции ошибки
-            
+
         Returns:
             Неотрицательный остаток от деления
         """
         if right == 0:
-            raise DivisionByZeroError("mod division by zero", line=meta.line, column=meta.column)
+            raise DivisionByZeroError(
+                "mod division by zero", line=meta.line, column=meta.column
+            )
         modulus = abs(right)
         quotient = (left / modulus).to_integral_value(rounding=ROUND_FLOOR)
         result = left - (quotient * modulus)
@@ -614,13 +708,13 @@ class Interpreter:
 
     def _to_decimal(self, value: Any) -> Decimal:
         """Преобразовать значение в Decimal.
-        
+
         Args:
             value: Значение для преобразования (Decimal, int, float, str)
-            
+
         Returns:
             Значение типа Decimal
-            
+
         Raises:
             DSLError: Если тип значения не поддерживается
         """
@@ -638,12 +732,12 @@ class Interpreter:
 
     def _round_value(self, value: Decimal) -> Decimal:
         """Округлить значение до текущей точности.
-        
+
         Использует ROUND_HALF_UP (математическое округление).
-        
+
         Args:
             value: Значение для округления
-            
+
         Returns:
             Округлённое значение
         """
@@ -652,12 +746,12 @@ class Interpreter:
 
     def _format_value(self, value: Any) -> str:
         """Форматировать значение в строку с текущей точностью.
-        
+
         При точности 0 форматирует как целое число без точки.
-        
+
         Args:
             value: Значение для форматирования
-            
+
         Returns:
             Строковое представление
         """
@@ -671,26 +765,26 @@ class Interpreter:
         if isinstance(value, PowerValue):
             return value.value
         return self._to_decimal(value)
-    
+
     def _get_source_line(self, line_num: int) -> str:
         """Получить строку исходного кода по номеру (нумерация с 1).
-        
+
         Args:
             line_num: Номер строки (1-based)
-            
+
         Returns:
             Текст строки без лишних пробелов или пустая строка
         """
         if 1 <= line_num <= len(self._source_lines):
             return self._source_lines[line_num - 1].strip()
         return ""
-    
+
     def _trace_statement(self, node: Tree, prefix: str = "-") -> None:
         """Напечатать трассировочную строку для отладки.
-        
+
         Формат: '- номер_строки: текст_инструкции'
         Работает только если режим трассировки включён.
-        
+
         Args:
             node: Узел дерева для трассировки
             prefix: Префикс строки трассировки (по умолчанию '-')
@@ -700,4 +794,3 @@ class Interpreter:
         if hasattr(node, "meta") and node.meta.line:
             source = self._get_source_line(node.meta.line)
             print(f"{prefix} {node.meta.line}: {source}")
-

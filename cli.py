@@ -1,3 +1,4 @@
+"""Командная строка для запуска интерпретатора DSL."""
 from __future__ import annotations
 
 import argparse
@@ -37,6 +38,19 @@ def _parse_assignments(items: list[str]) -> Dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
+    """Главная функция для запуска из командной строки.
+    Программа принимает путь к скрипту и переопределения переменных в виде NAME=VALUE.
+    Выполняет скрипт и выводит результат последнего выражения, если он не None.
+    В случае ошибок выводит сообщение в stderr и возвращает код ошибки.
+    
+    Аргументы:
+        argv: Список аргументов командной строки (без имени скрипта).
+    
+    Примеры использования:
+        python cli.py script.clc
+        python cli.py script.clc x=10 y=20
+        python cli.py script.clc x=10 y=20 --trace
+    """
     parser = argparse.ArgumentParser(description="Run DSL scripts.")
     parser.add_argument("script", help="Path to .clc script")
     parser.add_argument("vars", nargs="*", help="Variable overrides: name=value")
