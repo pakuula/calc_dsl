@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP, getcontext
 import ast
 import math
 from pathlib import Path
@@ -823,6 +823,13 @@ class Interpreter:
             )
         old_precision = self._precision
         self._precision = int(value)
+        
+        # Обновить контекст Decimal чтобы поддерживать требуемую точность
+        # Нужно установить prec больше чем количество десятичных знаков
+        # Добавляем запас для целой части и промежуточных вычислений
+        ctx = getcontext()
+        ctx.prec = max(28, self._precision + 10)  # минимум 28, или precision + запас
+        
         return Decimal(old_precision)
 
     def _apply_math_1(self, func: Any, args: Iterable[Any], token: Token) -> Any:
@@ -940,7 +947,7 @@ class Interpreter:
         """Преобразовать значение в Decimal.
 
         Args:
-            value: Значение для преобразования (Decimal, int, float, str)
+            value: Значение для преобразования (Decimal, int, float, str, PowerValue)
 
         Returns:
             Значение типа Decimal
@@ -948,6 +955,8 @@ class Interpreter:
         Raises:
             DSLError: Если тип значения не поддерживается
         """
+        if isinstance(value, PowerValue):
+            return value.value
         if isinstance(value, Decimal):
             return value
         if isinstance(value, (int, float)):
