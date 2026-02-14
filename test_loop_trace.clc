@@ -1,6 +1,0 @@
-# Test trace with loop and step
-sum = 0
-for i in 1 .. 5 by 2 (
-    sum += i
-)
-sum

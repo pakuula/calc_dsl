@@ -50,6 +50,47 @@ class BooleanError(DSLError):
     pass  # pylint: disable=unnecessary-pass
 
 
+class BreakException(Exception):
+    """Исключение для выхода из цикла через break."""
+
+    def __init__(self, loop_var: str, result: Any) -> None:
+        self.loop_var = loop_var
+        self.result = result
+        super().__init__(f"break from {loop_var}")
+
+
+class NextException(Exception):
+    """Исключение для перехода на следующую итерацию."""
+
+    def __init__(self, loop_var: str) -> None:
+        self.loop_var = loop_var
+        super().__init__(f"next {loop_var}")
+
+
+class BreakOutsideLoopError(DSLError):
+    """Break используется вне цикла."""
+
+    pass  # pylint: disable=unnecessary-pass
+
+
+class NextOutsideLoopError(DSLError):
+    """Next используется вне цикла."""
+
+    pass  # pylint: disable=unnecessary-pass
+
+
+class DuplicateLoopVariableError(DSLError):
+    """Переменная цикла уже используется."""
+
+    pass  # pylint: disable=unnecessary-pass
+
+
+class LoopNotFoundError(DSLError):
+    """Цикл по переменной не найден."""
+
+    pass  # pylint: disable=unnecessary-pass
+
+
 @dataclass(frozen=True)
 class PowerValue:
     """Значение степени для оптимизации модульного возведения в степень.
@@ -103,6 +144,7 @@ class Interpreter:
                 self._env[name] = value
         self._trace = trace
         self._source_lines: list[str] = []
+        self._loop_stack: list[str] = []  # стек активных переменных циклов
 
     @property
     def precision(self) -> int:
@@ -247,6 +289,7 @@ class Interpreter:
         name_token = node.children[0]
         assert isinstance(name_token, Token)
         op_tree = node.children[1]
+        assert isinstance(op_tree, Tree)
         value = self._eval(node.children[2])
         op = self._assign_op(op_tree)
 
@@ -308,6 +351,132 @@ class Interpreter:
     def _eval_expr(self, node: Tree) -> Any:
         return self._eval(node.children[0])
 
+    def _enter_loop(self, var: str, meta: Any) -> None:
+        """Вход в цикл с переменной var.
+
+        Args:
+            var: Имя переменной цикла
+            meta: Метаданные узла для позиции ошибки
+
+        Raises:
+            DuplicateLoopVariableError: Если переменная уже используется в активном цикле
+        """
+        if var in self._loop_stack:
+            raise DuplicateLoopVariableError(
+                f"Loop variable '{var}' is already in use",
+                line=meta.line,
+                column=meta.column,
+            )
+        self._loop_stack.append(var)
+
+    def _exit_loop(self, var: str) -> None:
+        """Выход из цикла.
+
+        Args:
+            var: Имя переменной цикла
+        """
+        if self._loop_stack and self._loop_stack[-1] == var:
+            self._loop_stack.pop()
+
+    def _eval_break_stmt(self, node: Tree) -> None:
+        """Обработка break конструкции.
+
+        Args:
+            node: Узел break_stmt
+
+        Raises:
+            BreakOutsideLoopError: Если break используется вне цикла
+            LoopNotFoundError: Если указанный цикл не найден
+            BreakException: Для выхода из цикла
+        """
+        if not self._loop_stack:
+            raise BreakOutsideLoopError(
+                "break statement used outside loop",
+                line=node.meta.line,
+                column=node.meta.column,
+            )
+
+        # Получить переменную цикла для выхода (по умолчанию - ближайший)
+        loop_var = None
+        from_clause_nodes = list(node.find_data("from_clause"))
+        if from_clause_nodes:
+            from_clause = from_clause_nodes[0]
+            name_token = from_clause.children[0]
+            assert isinstance(name_token, Token)
+            loop_var = name_token.value
+        else:
+            loop_var = self._loop_stack[-1]  # ближайший цикл
+
+        # Проверить, что цикл существует
+        if loop_var not in self._loop_stack:
+            raise LoopNotFoundError(
+                f"Loop with variable '{loop_var}' not found",
+                line=node.meta.line,
+                column=node.meta.column,
+            )
+
+        # Получить условие (опционально)
+        when_clause_nodes = list(node.find_data("when_clause"))
+        if when_clause_nodes:
+            when_clause = when_clause_nodes[0]
+            condition = self._eval(when_clause.children[0])
+            if not condition:
+                return None  # условие ложно, break не выполняется
+
+        # Вычислить результат (последний child - это expr после with)
+        result = self._eval(node.children[-1])
+
+        # Выбросить исключение
+        raise BreakException(loop_var, result)
+
+    def _eval_next_stmt(self, node: Tree) -> None:
+        """Обработка next конструкции.
+
+        Args:
+            node: Узел next_stmt
+
+        Raises:
+            NextOutsideLoopError: Если next используется вне цикла
+            LoopNotFoundError: Если указанный цикл не найден
+            NextException: Для перехода на следующую итерацию
+        """
+        if not self._loop_stack:
+            raise NextOutsideLoopError(
+                "next statement used outside loop",
+                line=node.meta.line,
+                column=node.meta.column,
+            )
+
+        # Получить переменную цикла (по умолчанию - ближайший)
+        loop_var = None
+        loop_var_nodes = list(node.find_data("loop_var"))
+        if loop_var_nodes:
+            loop_var_node = loop_var_nodes[0]
+            name_token = loop_var_node.children[0]
+            assert isinstance(name_token, Token)
+            loop_var = name_token.value
+        else:
+            loop_var = self._loop_stack[-1]  # ближайший цикл
+
+        # Проверить, что цикл существует
+        if loop_var not in self._loop_stack:
+            raise LoopNotFoundError(
+                f"Loop with variable '{loop_var}' not found",
+                line=node.meta.line,
+                column=node.meta.column,
+            )
+
+        # Получить условие (опционально)
+        when_clause_nodes = list(node.find_data("when_clause"))
+        if when_clause_nodes:
+            when_clause = when_clause_nodes[0]
+            condition = self._eval(when_clause.children[0])
+            if not condition:
+                return None  # условие ложно, next не выполняется
+
+        # Выбросить исключение
+        raise NextException(loop_var)
+
     def _eval_for_expr(self, node: Tree) -> Any:
         """Выполнить цикл for с диапазоном и опциональным шагом.
 
@@ -324,71 +493,108 @@ class Interpreter:
         """
         name_token = node.children[0]
         assert isinstance(name_token, Token)
-        start = self._ensure_numeric(self._eval(node.children[1]), "for loop start")
-        end = self._ensure_numeric(self._eval(node.children[2]), "for loop end")
-        block = node.children[-1]
-        step = Decimal(1)
-        if len(node.children) == 5:
-            step = self._ensure_numeric(self._eval(node.children[3]), "for loop step")
+        var_name = name_token.value
+        
+        # Вход в цикл (проверка на дубликаты переменных)
+        self._enter_loop(var_name, node.meta)
+        
+        try:
+            start = self._ensure_numeric(self._eval(node.children[1]), "for loop start")
+            end = self._ensure_numeric(self._eval(node.children[2]), "for loop end")
+            block = node.children[-1]
+            step = Decimal(1)
+            if len(node.children) == 5:
+                step = self._ensure_numeric(self._eval(node.children[3]), "for loop step")
 
-
-        if step == 0:
-            raise DSLError(
-                "Step cannot be zero", line=node.meta.line, column=node.meta.column
-            )
-
-        existed_before = name_token.value in self._env
-        original_value: Any = self._env.get(name_token.value)
-        self._env[name_token.value] = self._round_value(start)
-
-        last_result = None
-        last_valid_value: Optional[Decimal] = None
-        iterations = 0
-
-        if step > 0:
-            condition = lambda i: i <= end # pylint: disable=unnecessary-lambda-assignment
-        else:
-            condition = lambda i: i >= end # pylint: disable=unnecessary-lambda-assignment
-
-        while condition(self._to_decimal(self._env[name_token.value])):
-            # Trace loop iteration entry
-            if self._trace and iterations == 0:
-                # First iteration: print loop header with actual values
-                source = self._get_source_line(node.meta.line)
-                step_str = (
-                    f" by {self._format_value(step)}" if len(node.children) == 5 else ""
-                )
-                print(
-                    f"- {node.meta.line}: for {name_token.value} in "
-                    f"{self._format_value(start)} .. {self._format_value(end)}{step_str}"
-                )
-                print(
-                    f"+ {name_token.value} = {self._format_value(self._env[name_token.value])}"
-                )
-            elif self._trace:
-                # Subsequent iterations: just print updated loop variable
-                print(
-                    f"+ {name_token.value} = {self._format_value(self._env[name_token.value])}"
+            if step == 0:
+                raise DSLError(
+                    "Step cannot be zero", line=node.meta.line, column=node.meta.column
                 )
 
-            last_result = self._eval(block)
-            iterations += 1
-            last_valid_value = self._to_decimal(self._env[name_token.value])
-            self._env[name_token.value] = self._round_value(
-                self._to_decimal(self._env[name_token.value]) + step
-            )
+            existed_before = var_name in self._env
+            original_value: Any = self._env.get(var_name)
+            self._env[var_name] = self._round_value(start)
 
-        if existed_before:
-            if iterations == 0:
-                self._env[name_token.value] = original_value
+            last_result = None
+            last_valid_value: Optional[Decimal] = None
+            iterations = 0
+
+            if step > 0:
+                condition = lambda i: i <= end # pylint: disable=unnecessary-lambda-assignment
             else:
-                assert last_valid_value is not None
-                self._env[name_token.value] = last_valid_value
-        else:
-            if name_token.value in self._env:
-                del self._env[name_token.value]
+                condition = lambda i: i >= end # pylint: disable=unnecessary-lambda-assignment
 
-        return last_result
+            while condition(self._to_decimal(self._env[var_name])):
+                # Trace loop iteration entry
+                if self._trace and iterations == 0:
+                    # First iteration: print loop header with actual values
+                    source = self._get_source_line(node.meta.line)
+                    step_str = (
+                        f" by {self._format_value(step)}" if len(node.children) == 5 else ""
+                    )
+                    print(
+                        f"- {node.meta.line}: for {var_name} in "
+                        f"{self._format_value(start)} .. {self._format_value(end)}{step_str}"
+                    )
+                    print(
+                        f"+ {var_name} = {self._format_value(self._env[var_name])}"
+                    )
+                elif self._trace:
+                    # Subsequent iterations: just print updated loop variable
+                    print(
+                        f"+ {var_name} = {self._format_value(self._env[var_name])}"
+                    )
+
+                try:
+                    # Выполнить тело цикла
+                    last_result = self._eval(block)
+                    iterations += 1
+                    last_valid_value = self._to_decimal(self._env[var_name])
+                    
+                except NextException as ne:
+                    # Проверить, что это next для нашего цикла
+                    if ne.loop_var == var_name:
+                        # Next для текущего цикла - переходим к следующей итерации
+                        iterations += 1
+                        last_valid_value = self._to_decimal(self._env[var_name])
+                        # Продолжаем выполнение (обновляем переменную цикла ниже)
+                    else:
+                        # Next для внешнего цикла - пробрасываем исключение дальше
+                        raise
+                
+                except BreakException as be:
+                    # Проверить, что это break для нашего цикла
+                    if be.loop_var == var_name:
+                        # Break для текущего цикла - выходим с результатом
+                        last_result = be.result
+                        iterations += 1
+                        last_valid_value = self._to_decimal(self._env[var_name])
+                        break
+                    else:
+                        # Break для внешнего цикла - пробрасываем исключение дальше
+                        raise
+                
+                # Обновить переменную цикла для следующей итерации
+                self._env[var_name] = self._round_value(
+                    self._to_decimal(self._env[var_name]) + step
+                )
+
+            # Восстановить или удалить переменную цикла согласно семантике
+            if existed_before:
+                if iterations == 0:
+                    self._env[var_name] = original_value
+                else:
+                    assert last_valid_value is not None
+                    self._env[var_name] = last_valid_value
+            else:
+                if var_name in self._env:
+                    del self._env[var_name]
+
+            return last_result
+        
+        finally:
+            # Выход из цикла
+            self._exit_loop(var_name)
 
     def _eval_block(self, node: Tree) -> Any:
         result = None
@@ -413,7 +619,9 @@ class Interpreter:
         """
         args: list[Any] = []
         if node.children:
-            args = list(self._eval_print_args(node.children[0]))
+            print_args_node = node.children[0]
+            assert isinstance(print_args_node, Tree)
+            args = list(self._eval_print_args(print_args_node))
         printable = [self._format_value(arg) for arg in args]
         print(" ".join(printable))
         return None
@@ -529,7 +737,9 @@ class Interpreter:
         assert isinstance(name_token, Token)
         args: list[Any] = []
         if len(node.children) > 1:
-            args = list(self._eval_arg_list(node.children[1]))
+            arg_list_node = node.children[1]
+            assert isinstance(arg_list_node, Tree)
+            args = list(self._eval_arg_list(arg_list_node))
         return self._call_function(name_token, args)
 
     def _eval_arg_list(self, node: Tree) -> Iterable[Any]:
@@ -992,7 +1202,7 @@ class Interpreter:
             return left >= right
         raise DSLError(f"Unknown comparison operator: {op}")
 
-
+    def _get_source_line(self, line_num: int) -> str:
         """Получить строку исходного кода по номеру (нумерация с 1).
 
         Args:

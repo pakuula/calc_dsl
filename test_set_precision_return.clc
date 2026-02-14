@@ -1,3 +1,0 @@
-set_precision(10)
-p = set_precision(0)
-p

@@ -5,6 +5,8 @@
 ?statement_list: SEP* (statement (SEP+ statement)*)? SEP*
 
 ?statement: assignment
+          | break_stmt
+          | next_stmt
           | expr
 
 assignment: NAME assign_op expr
@@ -48,6 +50,13 @@ block: "(" statement_list? ")"
 print_call: "print" "(" print_args? ")"
 print_args: print_arg ("," print_arg)*
 print_arg: STRING | expr
+
+break_stmt: "break" from_clause? when_clause? "with" expr
+next_stmt: "next" loop_var? when_clause?
+
+from_clause: "from" NAME
+when_clause: "when" expr
+loop_var: NAME
 
 COMP_OP: "==" | "!=" | "<" | "<=" | ">" | ">="
 

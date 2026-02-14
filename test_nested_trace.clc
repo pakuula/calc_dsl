@@ -1,7 +1,0 @@
-# Test nested expressions
-result = for i in 1 .. 3 (
-    x = i * 2
-    print("i:", i, "x:", x)
-    x
-)
-print("final result:", result)
