@@ -13,15 +13,19 @@ assign_op: ASSIGN | PLUS_ASSIGN | MINUS_ASSIGN | DIV_ASSIGN | MOD_ASSIGN
 ?expr: for_expr
      | block
      | print_call
-     | sum
+     | conditional_expr
 
-for_expr: "for" NAME "in" expr ".." expr ("by" expr)? block
+conditional_expr: or_expr
+                | or_expr "if" or_expr "else" SEP* conditional_expr
 
-block: "(" statement_list? ")"
+?or_expr: and_expr (OR and_expr)*
 
-print_call: "print" "(" print_args? ")"
-print_args: print_arg ("," print_arg)*
-print_arg: STRING | expr
+?and_expr: not_expr (AND not_expr)*
+
+?not_expr: NOT not_expr
+         | comparison
+
+?comparison: sum ((COMP_OP) sum)*
 
 ?sum: product ((PLUS | MINUS) product)*
 ?product: power ((STAR | SLASH | MOD) power)*
@@ -32,9 +36,24 @@ print_arg: STRING | expr
 ?atom: NUMBER           -> number
      | func_call
      | NAME             -> var
+     | "(" conditional_expr ")"
 
 func_call: NAME "(" arg_list? ")"
 arg_list: expr ("," expr)*
+
+for_expr: "for" NAME "in" expr ".." expr ("by" expr)? block
+
+block: "(" statement_list? ")"
+
+print_call: "print" "(" print_args? ")"
+print_args: print_arg ("," print_arg)*
+print_arg: STRING | expr
+
+COMP_OP: "==" | "!=" | "<" | "<=" | ">" | ">="
+
+OR: "or"
+AND: "and"
+NOT: "not"
 
 ASSIGN: "="
 PLUS_ASSIGN: "+="

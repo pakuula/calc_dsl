@@ -44,6 +44,12 @@ class VariableNotFoundError(DSLError):
     pass  # pylint: disable=unnecessary-pass
 
 
+class BooleanError(DSLError):
+    """Исключение для попытки использовать булевское значение в неправильном контексте."""
+
+    pass  # pylint: disable=unnecessary-pass
+
+
 @dataclass(frozen=True)
 class PowerValue:
     """Значение степени для оптимизации модульного возведения в степень.
@@ -244,6 +250,14 @@ class Interpreter:
         value = self._eval(node.children[2])
         op = self._assign_op(op_tree)
 
+        # Проверить, что значение не булевское
+        if isinstance(value, bool):
+            raise BooleanError(
+                f"Cannot assign boolean value to variable {name_token.value}",
+                line=name_token.line,
+                column=name_token.column,
+            )
+
         if op == "=":
             self._env[name_token.value] = value
             return None
@@ -258,19 +272,25 @@ class Interpreter:
         current = self._env[name_token.value]
         if op == "+=":
             self._env[name_token.value] = self._round_value(
-                self._to_decimal(current) + self._to_decimal(value)
+                self._ensure_numeric(current, "compound assignment") + 
+                self._ensure_numeric(value, "compound assignment")
             )
         elif op == "-=":
             self._env[name_token.value] = self._round_value(
-                self._to_decimal(current) - self._to_decimal(value)
+                self._ensure_numeric(current, "compound assignment") - 
+                self._ensure_numeric(value, "compound assignment")
             )
         elif op == "/=":
             self._env[name_token.value] = self._div(
-                self._to_decimal(current), self._to_decimal(value), node.meta
+                self._ensure_numeric(current, "compound assignment"), 
+                self._ensure_numeric(value, "compound assignment"), 
+                node.meta
             )
         elif op == "mod=":
             self._env[name_token.value] = self._mod(
-                self._to_decimal(current), self._to_decimal(value), node.meta
+                self._ensure_numeric(current, "compound assignment"), 
+                self._ensure_numeric(value, "compound assignment"), 
+                node.meta
             )
         else:
             raise DSLError(
@@ -304,12 +324,13 @@ class Interpreter:
         """
         name_token = node.children[0]
         assert isinstance(name_token, Token)
-        start = self._to_decimal(self._eval(node.children[1]))
-        end = self._to_decimal(self._eval(node.children[2]))
+        start = self._ensure_numeric(self._eval(node.children[1]), "for loop start")
+        end = self._ensure_numeric(self._eval(node.children[2]), "for loop end")
         block = node.children[-1]
         step = Decimal(1)
         if len(node.children) == 5:
-            step = self._to_decimal(self._eval(node.children[3]))
+            step = self._ensure_numeric(self._eval(node.children[3]), "for loop step")
+
 
         if step == 0:
             raise DSLError(
@@ -412,41 +433,35 @@ class Interpreter:
 
     def _eval_sum(self, node: Tree) -> Any:
         value = self._eval(node.children[0])
+        value = self._ensure_numeric(value, "arithmetic operation (sum)")
         idx = 1
         while idx < len(node.children):
             op_token = node.children[idx]
             assert isinstance(op_token, Token)
             right = self._eval(node.children[idx + 1])
+            right = self._ensure_numeric(right, "arithmetic operation (sum)")
             if op_token.value == "+":
-                value = self._round_value(
-                    self._to_decimal(value) + self._to_decimal(right)
-                )
+                value = self._round_value(value + right)
             else:
-                value = self._round_value(
-                    self._to_decimal(value) - self._to_decimal(right)
-                )
+                value = self._round_value(value - right)
             idx += 2
         return value
 
     def _eval_product(self, node: Tree) -> Any:
         left = self._eval(node.children[0])
+        left = self._ensure_numeric(self._unwrap_value(left), "arithmetic operation (product)")
         idx = 1
         while idx < len(node.children):
             op_token = node.children[idx]
             assert isinstance(op_token, Token)
             right = self._eval(node.children[idx + 1])
+            right = self._ensure_numeric(right, "arithmetic operation (product)")
             if op_token.value == "*":
-                left = self._round_value(
-                    self._to_decimal(self._unwrap_value(left)) * self._to_decimal(right)
-                )
+                left = self._round_value(left * right)
             elif op_token.value == "/":
-                left = self._div(
-                    self._to_decimal(self._unwrap_value(left)),
-                    self._to_decimal(right),
-                    node.meta,
-                )
+                left = self._div(left, right, node.meta)
             else:
-                left = self._mod_op(left, right, node.meta)
+                left = self._mod(left, right, node.meta)
             idx += 2
         return left
 
@@ -474,10 +489,12 @@ class Interpreter:
         return self._mod(self._to_decimal(left), self._to_decimal(right), meta)
 
     def _eval_power(self, node: Tree) -> Any:
-        base = self._to_decimal(self._eval(node.children[0]))
+        base = self._eval(node.children[0])
+        base = self._ensure_numeric(base, "power operation (base)")
         if len(node.children) == 1:
             return base
-        exponent = self._to_decimal(self._eval(node.children[2]))
+        exponent = self._eval(node.children[2])
+        exponent = self._ensure_numeric(exponent, "power operation (exponent)")
         value = self._pow(base, exponent, node.meta)
         return PowerValue(base=base, exponent=exponent, value=value)
 
@@ -486,7 +503,8 @@ class Interpreter:
             return self._eval(node.children[0])
         op_token = node.children[0]
         assert isinstance(op_token, Token)
-        value = self._to_decimal(self._eval(node.children[1]))
+        value = self._eval(node.children[1])
+        value = self._ensure_numeric(value, "unary operation")
         if op_token.value == "+":
             return value
         return self._round_value(-value)
@@ -497,7 +515,9 @@ class Interpreter:
     def _eval_number(self, node: Tree) -> Any:
         token = node.children[0]
         assert isinstance(token, Token)
-        return self._to_decimal(token.value)
+        value = self._to_decimal(token.value)
+        # Apply current precision to the number
+        return self._round_value(value)
 
     def _eval_var(self, node: Tree) -> Any:
         token = node.children[0]
@@ -766,7 +786,213 @@ class Interpreter:
             return value.value
         return self._to_decimal(value)
 
-    def _get_source_line(self, line_num: int) -> str:
+    def _ensure_numeric(self, value: Any, context: str = "operation") -> Decimal:
+        """Убедиться, что значение - число, не булевское.
+
+        Args:
+            value: Значение для проверки
+            context: Описание контекста (для сообщения об ошибке)
+
+        Returns:
+            Числовое значение (Decimal)
+
+        Raises:
+            BooleanError: Если значение - булевское
+        """
+        if isinstance(value, bool):
+            raise BooleanError(
+                f"Cannot use boolean value in {context}"
+            )
+        return self._to_decimal(value)
+
+    def _eval_conditional_expr(self, node: Tree) -> Any:
+        """Выполнить условное выражение: or_expr if or_expr else conditional_expr.
+
+        Или просто или_выражение без условия.
+
+        Args:
+            node: Узел условного выражения
+
+        Returns:
+            Результат вычисления выражения
+        """
+        # Filter out SEP tokens
+        children = [child for child in node.children if not (isinstance(child, Token) and child.type == "SEP")]
+        
+        if len(children) == 1:
+            # Просто выражение без условия: conditional_expr -> or_expr
+            return self._eval(children[0])
+        
+        # Условное выражение: or_expr if or_expr else conditional_expr
+        # children: [then_expr_or_expr, condition_or_expr, else_expr_conditional_expr]
+        then_expr = children[0]
+        condition = children[1]
+        else_expr = children[2]
+        
+        cond_result = self._eval(condition)
+        if isinstance(cond_result, bool):
+            if cond_result:
+                return self._eval(then_expr)
+            else:
+                return self._eval(else_expr)
+        
+        raise BooleanError(
+            "Condition in conditional expression must evaluate to boolean"
+        )
+
+    def _eval_or_expr(self, node: Tree) -> bool:
+        """Выполнить логический OR с short-circuit evaluation.
+
+        Args:
+            node: Узел или-выражения
+
+        Returns:
+            Результат логического OR
+        """
+        # and_expr (OR and_expr)*
+        result = self._eval(node.children[0])
+        if not isinstance(result, bool):
+            raise BooleanError(
+                f"Left operand of 'or' must be boolean, got {type(result).__name__}"
+            )
+        
+        # Iterate over operands: [operand, OP, operand, OP, operand, ...]
+        for i in range(2, len(node.children), 2):
+            if result:
+                # Short-circuit: если уже true, не вычисляем дальше
+                return True
+            
+            value = self._eval(node.children[i])
+            if not isinstance(value, bool):
+                raise BooleanError(
+                    f"Right operand of 'or' must be boolean, got {type(value).__name__}"
+                )
+            result = value
+        
+        return result
+
+    def _eval_and_expr(self, node: Tree) -> bool:
+        """Выполнить логический AND с short-circuit evaluation.
+
+        Args:
+            node: Узел и-выражения
+
+        Returns:
+            Результат логического AND
+        """
+        # not_expr (AND not_expr)*
+        result = self._eval(node.children[0])
+        if not isinstance(result, bool):
+            raise BooleanError(
+                f"Left operand of 'and' must be boolean, got {type(result).__name__}"
+            )
+        
+        # Iterate over operands: [operand, OP, operand, OP, operand, ...]
+        for i in range(2, len(node.children), 2):
+            if not result:
+                # Short-circuit: если уже false, не вычисляем дальше
+                return False
+            
+            value = self._eval(node.children[i])
+            if not isinstance(value, bool):
+                raise BooleanError(
+                    f"Right operand of 'and' must be boolean, got {type(value).__name__}"
+                )
+            result = value
+        
+        return result
+
+    def _eval_not_expr(self, node: Tree) -> Any:
+        """Выполнить логический NOT или вернуть сравнение.
+
+        Args:
+            node: Узел not-выражения
+
+        Returns:
+            Результат логического NOT или сравнения
+        """
+        if len(node.children) == 1:
+            # comparison -> просто возвращаем результат
+            return self._eval(node.children[0])
+        
+        # len(node.children) == 2: "not" not_expr
+        # First child is Token("not"), second is the not_expr to negate
+        value = self._eval(node.children[1])
+        if not isinstance(value, bool):
+            raise BooleanError(
+                f"Operand of 'not' must be boolean, got {type(value).__name__}"
+            )
+        return not value
+
+    def _eval_comparison(self, node: Tree) -> bool:
+        """Выполнить сравнение, поддерживая цепочки сравнений.
+
+        Семантика: 1 < x < 10 -> (1 < x) and (x < 10)
+
+        Args:
+            node: Узел сравнения
+
+        Returns:
+            Результат сравнения (boolean)
+        """
+        children = node.children
+        
+        if len(children) == 1:
+            # Просто выражение без сравнения: sum
+            # Это не булевское значение в условном смысле, 
+            # так что мы возвращаем его как есть или как true?
+            # Согласно дизайну, в условиях должны быть булевские значения
+            value = self._eval(children[0])
+            # Если это не результат сравнения, это ошибка в условном контексте
+            # Но здесь мы просто в правиле comparison, которое может быть использовано
+            # не только в условиях. На самом деле, если нет операторов сравнения,
+            # это просто number/atom. Вернем это значение.
+            return value
+        
+        # Цепочка сравнений: sum COMP_OP sum COMP_OP sum ...
+        # children: [sum, COMP_OP, sum, COMP_OP, sum, ...]
+        result = True
+        
+        # Iterate over comparisons: [operand, OP, operand, OP, operand, ...]
+        for i in range(0, len(children) - 2, 2):
+            left = self._ensure_numeric(self._eval(children[i]))
+            op_token = children[i + 1]
+            assert isinstance(op_token, Token)
+            op = op_token.value
+            right = self._ensure_numeric(self._eval(children[i + 2]))
+            
+            if not self._compare(left, op, right):
+                result = False
+                break
+        
+        return result
+
+    def _compare(self, left: Decimal, op: str, right: Decimal) -> bool:
+        """Выполнить операцию сравнения.
+
+        Args:
+            left: Левый операнд
+            op: Оператор сравнения (==, !=, <, <=, >, >=)
+            right: Правый операнд
+
+        Returns:
+            Результат сравнения
+        """
+        if op == "==":
+            return left == right
+        if op == "!=":
+            return left != right
+        if op == "<":
+            return left < right
+        if op == "<=":
+            return left <= right
+        if op == ">":
+            return left > right
+        if op == ">=":
+            return left >= right
+        raise DSLError(f"Unknown comparison operator: {op}")
+
+
         """Получить строку исходного кода по номеру (нумерация с 1).
 
         Args:

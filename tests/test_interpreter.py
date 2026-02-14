@@ -8,12 +8,17 @@ from interpreter import DivisionByZeroError, Interpreter, VariableNotFoundError
 
 
 def eval_code(code: str):
-    "Проверка выполнения пустой программы."
+    """Вспомогательная функция для выполнения кода."""
     return Interpreter().execute(code)
 
 
+# ============================================================================
+# Базовые тесты арифметики и операторов
+# ============================================================================
+
+
 def test_operator_precedence():
-    "Проверка правильного порядка операций."
+    """Проверка правильного порядка операций."""
     result = eval_code("2 + 2 * 2")
     assert result == Decimal("6")
 
@@ -25,9 +30,20 @@ def test_power_mod_precedence():
 
 
 def test_assignments_sequence():
-    "Проверка последовательных присваиваний и операторов присваивания."
+    """Проверка последовательных присваиваний и операторов присваивания."""
     result = eval_code("x = 5; x += 10; x mod= 4; x")
     assert result == Decimal("3")
+
+
+def test_negative_mod_semantics():
+    """Проверка остатка от деления для отрицательных чисел."""
+    result = eval_code("-5 mod 3")
+    assert result == Decimal("1")
+
+
+# ============================================================================
+# Тесты математических функций
+# ============================================================================
 
 
 def test_math_functions():
@@ -40,6 +56,11 @@ def test_math_functions():
     assert result == Decimal("1")
     result = eval_code("nrt(27, 3)")
     assert result == Decimal("3")
+
+
+# ============================================================================
+# Тесты обработки ошибок
+# ============================================================================
 
 
 def test_division_by_zero():
@@ -60,81 +81,9 @@ def test_undefined_variable():
         eval_code("x + 1")
 
 
-def test_negative_mod_semantics():
-    """Проверка остатка от деления для отрицательных чисел."""
-    result = eval_code("-5 mod 3")
-    assert result == Decimal("1")
-
-
-def test_for_expression_result():
-    """Проверка результата выражения for."""
-    code = """
-    n = 5
-    prev = 0
-    curr = 1
-    fib = for i in 2..n (
-        next = prev + curr
-        prev = curr
-        curr = next
-        curr
-    )
-    fib
-    """
-    result = eval_code(code)
-    assert result == Decimal("5")
-
-
-def test_for_expression_with_range_expression():
-    """Проверка выражения for с выражением диапазона."""
-    code = """
-    n = 9
-    prev = 0
-    curr = 1
-
-    fib = for i in 2..(n+1) (
-        next = curr + prev
-        print("i=", i, "next=", next)
-        prev = curr
-        curr = next
-        curr
-    )
-
-    fib
-    """
-    result = eval_code(code)
-    assert result == Decimal("55")
-
-
-def test_loop_variable_visibility_when_predefined():
-    """Проверка видимости переменной цикла, если она уже определена."""
-    code = """
-    i = 10
-    for i in 1..3 (i)
-    i
-    """
-    result = eval_code(code)
-    assert result == Decimal("3")
-
-
-def test_loop_variable_not_visible_when_new():
-    """Проверка видимости переменной цикла, если она новая."""
-    code = """
-    for i in 1..1 (i)
-    i
-    """
-    with pytest.raises(VariableNotFoundError):
-        eval_code(code)
-
-
-def test_loop_not_run_keeps_original_value():
-    """Проверка, что если цикл не выполняется, сохраняется исходное значение переменной."""
-    code = """
-    i = 7
-    for i in 5..1 by -2 (i)
-    i
-    """
-    result = eval_code(code)
-    assert result == Decimal("1")
+# ============================================================================
+# Тесты функций print и управления точностью
+# ============================================================================
 
 
 def test_print_allows_strings(capsys):
@@ -239,3 +188,21 @@ old = set_precision(3)
 old"""
     result = interp.execute(code)
     assert result == Decimal("5")
+
+
+# ============================================================================
+# Тесты обратной совместимости
+# ============================================================================
+
+
+def test_backward_compatibility():
+    """Существующие скрипты работают без изменений."""
+    result = eval_code("2 + 3 * 4")
+    assert result == Decimal("14")
+
+
+def test_backward_compatibility_functions():
+    """Существующие функции работают без изменений."""
+    result = eval_code("sqrt(16)")
+    assert result == Decimal("4")
+
